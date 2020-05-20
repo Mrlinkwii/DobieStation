@@ -24,6 +24,24 @@ mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo
 make
 
+to automate this  use the automate-cmake.sh script  , you need to make sure cmake is installed and QT is installed 
+you may need to make  automate-cmake.sh script run as a application , 
+to do this it can be done in 2  ways ,  using the terminal ,  or using the GUI
+
+way 1 :
+cd /path/to/automate-cmake.sh
+chmod +x automate-cmake.sh
+./automate-cmake.sh
+
+
+way 2:
+
+open where you downoaded Dobiestation
+right click automate-cmake.sh
+go to permissions
+check the  allow executing file as program box 
+open the terminal and write ./automate-cmake.sh
+
 # MacOS (using Homebrew Qt5)
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_PREFIX_PATH=/usr/local/opt/qt5
