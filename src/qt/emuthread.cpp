@@ -37,6 +37,11 @@ void EmuThread::reset()
     current_gs_message = 0;
 }
 
+void EmuThread::set_wavout(bool state)
+{
+    wait_for_lock([=]() { e.set_wav_output(state); } );
+}
+
 void EmuThread::set_skip_BIOS_hack(SKIP_HACK skip)
 {
     wait_for_lock([=]() { e.set_skip_BIOS_hack(skip); } );
@@ -80,6 +85,11 @@ void EmuThread::load_CDVD(const char* name, CDVD_CONTAINER type)
         e.load_CDVD(name, type);
         emit rom_loaded(name, QString::fromStdString(e.get_serial()));
     } );
+}
+
+void EmuThread::load_memcard(int port, const char *name)
+{
+    wait_for_lock([=]() { e.load_memcard(port, name); });
 }
 
 bool EmuThread::load_state(const char *name)

@@ -27,6 +27,9 @@ EmuWindow::EmuWindow(QWidget *parent) : QMainWindow(parent)
     framerate_avg = 0.0;
     frametime_avg = 0.016;
 
+    for (int i = 0; i < 60; i++)
+        frametime_list[i] = 0.016;
+
     render_widget = new RenderWidget;
 
     connect(&emu_thread, &EmuThread::completed_frame,
@@ -185,6 +188,9 @@ int EmuWindow::load_exec(const char* file_name, bool skip_BIOS)
         printf("Failed to load %s\n", file_name);
         return 1;
     }
+
+    if (!Settings::instance().memcard_path.isEmpty())
+        emu_thread.load_memcard(0, Settings::instance().memcard_path.toStdString().c_str());
 
     QString ext = file_info.suffix();
     if(QString::compare(ext, "elf", Qt::CaseInsensitive) == 0)
@@ -351,6 +357,9 @@ void EmuWindow::create_menu()
     file_menu->addSeparator();
     file_menu->addAction(exit_action);
 
+    auto memcard_window_action = new QAction(tr("&Memcards"), this);
+    connect(memcard_window_action, &QAction::triggered, this, &EmuWindow::open_memcard_window);
+
     auto pause_action = new QAction(tr("&Pause"), this);
     connect(pause_action, &QAction::triggered, this, [=] (){
         emu_thread.pause(PAUSE_EVENT::USER_REQUESTED);
@@ -372,6 +381,15 @@ void EmuWindow::create_menu()
         frame_action->setChecked(emu_thread.frame_advance);
     });
 
+    auto wavoutput_action = new QAction(tr("&WAV Audio Output"), this);
+    wavoutput_action->setCheckable(true);
+    connect(wavoutput_action, &QAction::triggered, this, [=] (){
+        bool new_state = wavoutput_action->isChecked();
+        emu_thread.set_wavout(new_state);
+        wavoutput_action->setChecked(new_state);
+    });
+
+
     auto shutdown_action = new QAction(tr("&Shutdown"), this);
     connect(shutdown_action, &QAction::triggered, this, [=]() {
         emu_thread.pause(PAUSE_EVENT::GAME_NOT_LOADED);
@@ -379,10 +397,13 @@ void EmuWindow::create_menu()
     });
 
     emulation_menu = menuBar()->addMenu(tr("Emulation"));
+    emulation_menu->addAction(memcard_window_action);
+    emulation_menu->addSeparator();
     emulation_menu->addAction(pause_action);
     emulation_menu->addAction(unpause_action);
     emulation_menu->addSeparator();
     emulation_menu->addAction(frame_action);
+    emulation_menu->addAction(wavoutput_action);
     emulation_menu->addSeparator();
     emulation_menu->addAction(shutdown_action);
 
@@ -466,6 +487,15 @@ void EmuWindow::open_settings_window()
 
     settings_window->show();
     settings_window->raise();
+}
+
+void EmuWindow::open_memcard_window()
+{
+    if (!memcard_window)
+        memcard_window = new MemcardWindow(this);
+
+    memcard_window->show();
+    memcard_window->raise();
 }
 
 void EmuWindow::closeEvent(QCloseEvent *event)
@@ -605,18 +635,26 @@ void EmuWindow::keyReleaseEvent(QKeyEvent *event)
 void EmuWindow::update_FPS(double FPS)
 {
     if(FPS > 0.01) {
-        frametime_avg = 0.8 * frametime_avg + 0.2 / FPS;
         frametime_list[frametime_list_index] = 1. / FPS;
         frametime_list_index = (frametime_list_index + 1) % 60;
     }
 
     double worst_frame_time = 0;
+    frametime_avg = 0;
+
     for(int i = 0; i < 60; i++)
     {
         if(frametime_list[i] > worst_frame_time) worst_frame_time = frametime_list[i];
+        frametime_avg += frametime_list[i];
     }
 
-    framerate_avg = 0.8 * framerate_avg + 0.2 * FPS;
+    if (frametime_avg > 0)
+    {
+        frametime_avg = frametime_avg / 60.0;
+        framerate_avg = 1.0 / frametime_avg;
+    }
+    else
+        framerate_avg = 0;
 
     avg_framerate->setText(QString("%1 fps").arg(
         QString::number(framerate_avg, 'f', 1)

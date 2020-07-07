@@ -63,6 +63,7 @@ void CDVD_Drive::reset()
     ISTAT = 0;
     disc_type = CDVD_DISC_NONE;
     file_size = 0;
+    mecha_decode = 0;
     time_t raw_time;
     struct tm * time;
     std::time(&raw_time);
@@ -588,6 +589,19 @@ void CDVD_Drive::send_S_command(uint8_t value)
             prepare_S_outdata(1);
             S_outdata[0] = 0;
             break;
+        case 0x36: //Stub until we have MEC and NVM file support
+            printf("[CDVD] GetRegionParams\n");
+            prepare_S_outdata(15);
+            //This is basically what PCSX2 returns on a blank NVM/MEC file
+            S_outdata[0] = 0;
+            S_outdata[1] = 1 << 0x3; //MEC encryption zone
+            S_outdata[2] = 0;
+            S_outdata[3] = 0x80; //Region Params
+            S_outdata[4] = 0x1;
+
+            for (int i = 5; i < 15; i++)
+                S_outdata[i] = 0;
+            break;
         case 0x40:
             printf("[CDVD] OpenConfig\n");
             prepare_S_outdata(1);
@@ -606,6 +620,84 @@ void CDVD_Drive::send_S_command(uint8_t value)
             break;
         case 0x43:
             printf("[CDVD] CloseConfig\n");
+            prepare_S_outdata(1);
+            S_outdata[0] = 0;
+            break;
+        case 0x80:
+            printf("[CDVD] MECHACON_auth_0x80\n");
+            prepare_S_outdata(1);
+            S_outdata[0] = 0;
+            break;
+        case 0x81:
+            printf("[CDVD] MECHACON_auth_0x81\n");
+            prepare_S_outdata(1);
+            S_outdata[0] = 0;
+            break;
+        case 0x82:
+            printf("[CDVD] MECHACON_auth_0x82\n");
+            prepare_S_outdata(1);
+            S_outdata[0] = 0;
+            break;
+        case 0x83:
+            printf("[CDVD] MECHACON_auth_0x83\n");
+            prepare_S_outdata(1);
+            S_outdata[0] = 0;
+            break;
+        case 0x84:
+            printf("[CDVD] MECHACON_auth_0x84\n");
+            prepare_S_outdata(1+8+4);
+            S_outdata[0] = 0;
+
+            S_outdata[1] = 0x21;
+            S_outdata[2] = 0xdc;
+            S_outdata[3] = 0x31;
+            S_outdata[4] = 0x96;
+            S_outdata[5] = 0xce;
+            S_outdata[6] = 0x72;
+            S_outdata[7] = 0xe0;
+            S_outdata[8] = 0xc8;
+
+            S_outdata[9]  = 0x69;
+            S_outdata[10] = 0xda;
+            S_outdata[11] = 0x34;
+            S_outdata[12] = 0x9b;
+            break;
+        case 0x85:
+            printf("[CDVD] MECHACON_auth_0x85\n");
+            prepare_S_outdata(1+4+8);
+            S_outdata[0] = 0;
+
+            S_outdata[1] = 0xeb;
+            S_outdata[2] = 0x01;
+            S_outdata[3] = 0xc7;
+            S_outdata[4] = 0xa9;
+
+            S_outdata[5] = 0x3f;
+            S_outdata[6] = 0x9c;
+            S_outdata[7] = 0x5b;
+            S_outdata[8] = 0x19;
+            S_outdata[9] = 0x31;
+            S_outdata[10] = 0xa0;
+            S_outdata[11] = 0xb3;
+            S_outdata[12] = 0xa3;
+            break;
+        case 0x86:
+            printf("[CDVD] MECHACON_auth_0x86\n");
+            prepare_S_outdata(1);
+            S_outdata[0] = 0;
+            break;
+        case 0x87:
+            printf("[CDVD] MECHACON_auth_0x87\n");
+            prepare_S_outdata(1);
+            S_outdata[0] = 0;
+            break;
+        case 0x88:
+            printf("[CDVD] MECHACON_auth_0x88\n");
+            prepare_S_outdata(1);
+            S_outdata[0] = 0;
+            break;
+        case 0x8F:
+            printf("[CDVD] MECHACON_auth_0x8F\n");
             prepare_S_outdata(1);
             S_outdata[0] = 0;
             break;
@@ -837,6 +929,22 @@ void CDVD_Drive::N_command_readkey(uint32_t arg)
     intc->assert_irq(2);
 }
 
+void CDVD_Drive::decrypt_mechacon_sector()
+{
+    if (mecha_decode)
+    {
+        uint8_t shift_amount = (mecha_decode >> 4) & 7;
+        bool do_xor = (mecha_decode) & 1;
+        bool do_shift = (mecha_decode) & 2;
+
+        for (int i = 0; i < block_size; ++i)
+        {
+            if (do_xor) read_buffer[i] ^= cdkey[4];
+            if (do_shift) read_buffer[i] = (read_buffer[i] >> shift_amount) | (read_buffer[i] << (8 - shift_amount));
+        }
+    }
+}
+
 void CDVD_Drive::read_CD_sector()
 {
     printf("[CDVD] Read CD sector - Sector: %lu Size: %lu\n", current_sector, block_size);
@@ -849,6 +957,9 @@ void CDVD_Drive::read_CD_sector()
             container->read(read_buffer, block_size);
             break;
     }
+
+    decrypt_mechacon_sector();
+
     read_bytes_left = block_size;
     current_sector++;
     sectors_left--;
@@ -916,6 +1027,9 @@ void CDVD_Drive::read_DVD_sector()
     read_buffer[2061] = 0;
     read_buffer[2062] = 0;
     read_buffer[2063] = 0;
+
+    decrypt_mechacon_sector();
+
     read_bytes_left = 2064;
     current_sector++;
     sectors_left--;
@@ -959,6 +1073,12 @@ void CDVD_Drive::write_ISTAT(uint8_t value)
 {
     printf("[CDVD] Write ISTAT: $%02X\n", value);
     ISTAT &= ~value;
+}
+
+void CDVD_Drive::write_mecha_decode(uint8_t value)
+{
+    printf("[CDVD] Write Mechacon Decode Value: $%02X\n", value);
+    mecha_decode = value;
 }
 
 void CDVD_Drive::add_event(uint64_t cycles)

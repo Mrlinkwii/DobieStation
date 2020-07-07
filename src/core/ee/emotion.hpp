@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <fstream>
 #include <functional>
+#include <list>
 #include "cop0.hpp"
 #include "cop1.hpp"
 
@@ -12,6 +13,7 @@ class Emulator;
 class VectorUnit;
 class EE_JIT64;
 class EmotionEngine;
+class SubsystemInterface;
 
 //Handler used for Deci2Call (syscall 0x7C)
 struct Deci2Handler
@@ -57,12 +59,12 @@ class EmotionEngine
         Emulator* e;
 
         uint64_t cycle_count;
-        uint64_t cop2_last_cycle;
         int32_t cycles_to_run;
         uint64_t run_event;
 
         Cop0* cp0;
         Cop1* fpu;
+        SubsystemInterface* sif;
         VectorUnit* vu0;
         VectorUnit* vu1;
 
@@ -100,8 +102,10 @@ class EmotionEngine
         uint32_t get_paddr(uint32_t vaddr);
         void handle_exception(uint32_t new_addr, uint8_t code);
         void deci2call(uint32_t func, uint32_t param);
+
+        void log_sifrpc(uint32_t dma_struct_ptr, int len);
     public:
-        EmotionEngine(Cop0* cp0, Cop1* fpu, Emulator* e, VectorUnit* vu0, VectorUnit* vu1);
+        EmotionEngine(Cop0* cp0, Cop1* fpu, Emulator* e, SubsystemInterface* sif, VectorUnit* vu0, VectorUnit* vu1);
         static const char* REG(int id);
         static const char* SYSCALL(int id);
         void reset();
@@ -112,8 +116,6 @@ class EmotionEngine
         uint64_t get_cycle_count();
         uint64_t get_cycle_count_goal();
         void set_cycle_count(uint64_t value);
-        uint64_t get_cop2_last_cycle();
-        void set_cop2_last_cycle(uint64_t value);
         void halt();
         void unhalt();
         void print_state();
@@ -189,6 +191,7 @@ class EmotionEngine
         void trap_exception();
         void int0();
         void int1();
+        void int_timer();
         void set_int0_signal(bool value);
         void set_int1_signal(bool value);
 
@@ -249,16 +252,6 @@ inline uint64_t EmotionEngine::get_cycle_count_goal()
 inline void EmotionEngine::set_cycle_count(uint64_t value)
 {
     cycle_count = value;
-}
-
-inline uint64_t EmotionEngine::get_cop2_last_cycle()
-{
-    return cop2_last_cycle;
-}
-
-inline void EmotionEngine::set_cop2_last_cycle(uint64_t value)
-{
-    cop2_last_cycle = value;
 }
 
 inline void EmotionEngine::halt()

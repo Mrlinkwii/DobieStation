@@ -9,8 +9,31 @@
 #include "ee/vu_jit.hpp"
 #include "ee/ee_jit.hpp"
 
-#define CYCLES_PER_FRAME 4900000
-#define VBLANK_START_CYCLES CYCLES_PER_FRAME * 0.75
+/* Notes of timings from PS2*/
+/*
+
+Note: Values were counted using EE Timers 0 at a 1/256 divider for V-BLANK cycles, H-BLANK's were counted with Timer 1 with CLK Source of H-BLANK
+NTSC Non-Interlaced
+V-BLANK Off for 2248960 bus cycles (within 256 cycles), 240 H-BLANK's
+V-BLANK On for 215552 bus cycles (within 256 cycles), 23 H-BLANK's
+EE Cycles Per Frame between 4929024 & 4929536
+
+PAL Non-Interlaced
+V-BLANK Off for 2717696 bus cycles (within 256 cycles), 288 H-BLANK's
+V-BLANK On for 245504 bus cycles (within 256 cycles), 26 H-BLANK's
+EE Cycles Per Frame between 5926400 & 5926912
+*/
+
+/*
+//NTSC Non-Interlaced Timings
+#define CYCLES_PER_FRAME 4929486 //4929486.849336438 EE cycles to be exact FPS of 59.82610543726237hz
+#define VBLANK_START_CYCLES 4498391 //4498391.041219564 EE cycles to be exact, exactly 23 HBLANK's before the end
+*/
+
+//NTSC Interlaced Timings
+#define CYCLES_PER_FRAME 4920115 //4920115.2 EE cycles to be exact FPS of 59.94005994005994hz
+#define VBLANK_START_CYCLES 4489019 //4489019.391883126 Guess, exactly 23 HBLANK's before the end
+
 
 //These constants are used for the fast boot hack for .isos
 #define EELOAD_START 0x82000
@@ -19,7 +42,7 @@
 Emulator::Emulator() :
     cdvd(&iop_intc, &iop_dma, &scheduler),
     cp0(&dmac),
-    cpu(&cp0, &fpu, this, &vu0, &vu1),
+    cpu(&cp0, &fpu, this, &sif, &vu0, &vu1),
     dmac(&cpu, this, &gif, &ipu, &sif, &vif0, &vif1, &vu0, &vu1),
     gif(&gs, &dmac),
     gs(&intc),
@@ -38,7 +61,7 @@ Emulator::Emulator() :
     vif1(&gif, &vu1, &intc, &dmac, 1),
     vu0(0, this, &intc, &cpu, &vu1),
     vu1(1, this, &intc, &cpu, &vu0),
-    sif(&iop_dma, &dmac)
+    sif(&cpu, &iop_dma, &dmac)
 {
     BIOS = nullptr;
     RDRAM = nullptr;
@@ -94,6 +117,8 @@ void Emulator::run()
         }
     }
 
+    memcard.save_if_dirty();
+
     frame_ended = false;
 
     scheduler.add_event(vblank_start_id, VBLANK_START_CYCLES);
@@ -117,8 +142,8 @@ void Emulator::run()
         gif.run(bus_cycles);
         
         //VU's run at EE speed, however both maintain their own speed
-        vu0.run_func(vu0, ee_cycles);
-        vu1.run_func(vu1, ee_cycles);
+        vu0.run_func(vu0);
+        vu1.run_func(vu1);
 
         scheduler.process_events();
     }
@@ -207,6 +232,7 @@ void Emulator::vblank_start()
 {
     VBLANK_sent = true;
     gs.set_VBLANK(true);
+
     timers.gate(true, true);
     cdvd.vsync();
     //cpu.set_disassembly(frames >= 223 && frames < 225);
@@ -385,6 +411,13 @@ void Emulator::load_ELF(const uint8_t *ELF, uint32_t size)
 bool Emulator::load_CDVD(const char *name, CDVD_CONTAINER type)
 {
     return cdvd.load_disc(name, type);
+}
+
+void Emulator::load_memcard(int port, const char *name)
+{
+    //TODO: handle port setting. Currently it's ignored and treated as Port 0
+    if (!memcard.open(name))
+        printf("Failed to open memcard %s\n", name);
 }
 
 std::string Emulator::get_serial()
@@ -1281,6 +1314,9 @@ void Emulator::iop_write8(uint32_t address, uint8_t value)
         case 0x1F402017:
             cdvd.write_S_data(value);
             return;
+        case 0x1F40203A:
+            cdvd.write_mecha_decode(value);
+            return;
         //POST2?
         case 0x1F802070:
             return;
@@ -1310,7 +1346,7 @@ void Emulator::iop_write16(uint32_t address, uint16_t value)
         *(uint16_t*)&IOP_RAM[address] = value;
         return;
     }
-    if (address >= 0x1F900000 && address < 0x1F900400)
+    if ((address >= 0x1F900000 && address < 0x1F900400) || (address >= 0x1F900760 && address < 0x1F900788))
     {
         spu.write16(address, value);
         return;
@@ -1743,6 +1779,11 @@ void Emulator::iop_puts()
 GraphicsSynthesizer& Emulator::get_gs()
 {
     return gs;
+}
+
+void Emulator::set_wav_output(bool state)
+{
+    spu2.wav_output = state;
 }
 
 void Emulator::request_gsdump_toggle()
