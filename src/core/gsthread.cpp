@@ -958,6 +958,7 @@ void GraphicsSynthesizerThread::write64(uint32_t addr, uint64_t value)
             break;
         case 0x0022:
             SCANMSK = value & 0x3;
+            update_draw_pixel_state();
             break;
         case 0x0034:
             context1.set_miptbl1(value);
@@ -3980,6 +3981,9 @@ void GraphicsSynthesizerThread::clut_CSM2_lookup(uint8_t entry, RGBAQ_REG &tex_c
 void GraphicsSynthesizerThread::reload_clut(GSContext& context)
 {
     int eight_bit = false;
+    bool reload = false;
+    uint32_t clut_addr = context.tex0.CLUT_base;
+
     switch (context.tex0.format)
     {
         case 0x13: //8-bit textures
@@ -3997,12 +4001,6 @@ void GraphicsSynthesizerThread::reload_clut(GSContext& context)
             eight_bit = true;
             break;
     }
-
-    uint32_t clut_addr = context.tex0.CLUT_base;
-    uint32_t cache_addr = context.tex0.CLUT_offset;
-    uint32_t offset = (context.tex0.CLUT_offset / (context.tex0.CLUT_format ? 2 : 4));
-
-    bool reload = false;
 
     switch (context.tex0.CLUT_control)
     {
@@ -4031,13 +4029,18 @@ void GraphicsSynthesizerThread::reload_clut(GSContext& context)
             return;
     }
 
-    int entries = (eight_bit) ? 256 : 16;
-    int max_entries = (context.tex0.CLUT_format < 0x2 ? 256 : 512);
-
     if (reload)
     {
         printf("[GS_t] Reloading CLUT cache!\n");
-        for (int i = offset; i < max_entries; i++)
+
+        uint32_t cache_addr = context.tex0.CLUT_offset;
+        uint32_t offset = (context.tex0.CLUT_offset / (context.tex0.CLUT_format ? 2 : 4));
+        uint32_t entries = (eight_bit) ? 256 : 16;
+        uint32_t max_entries = (context.tex0.CLUT_format < 0x2 ? 256 : 512);
+
+        max_entries = std::min(max_entries, offset + entries);
+
+        for (uint32_t i = offset; i < max_entries; i++)
         {
             if (context.tex0.use_CSM2)
             {
@@ -4125,6 +4128,7 @@ void GraphicsSynthesizerThread::update_draw_pixel_state()
     draw_pixel_state |= (uint64_t)(current_PRMODE == &PRIM) << 53UL;
     draw_pixel_state |= (uint64_t)(current_ctx == &context1) << 54UL;
     draw_pixel_state |= (uint64_t)(current_ctx->frame.mask != 0) << 55UL;
+    draw_pixel_state |= (uint64_t)(current_ctx->FBA) << 56UL;
 }
 
 void GraphicsSynthesizerThread::update_tex_lookup_state()
