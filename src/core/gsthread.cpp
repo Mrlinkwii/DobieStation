@@ -3456,6 +3456,10 @@ void GraphicsSynthesizerThread::local_to_local()
                 write_PSMCT24Z_block(BITBLTBUF.dest_base, BITBLTBUF.dest_width,
                                     TRXPOS.int_dest_x, TRXPOS.int_dest_y, data);
                 break;
+            case 0x3A:
+                write_PSMCT16SZ_block(BITBLTBUF.dest_base, BITBLTBUF.dest_width,
+                                      TRXPOS.int_dest_x, TRXPOS.int_dest_y, data);
+                break;
             default:
                 Errors::die("[GS_t] Unrecognized local-to-local dest format $%02X", BITBLTBUF.dest_format);
         }
@@ -3523,7 +3527,7 @@ void GraphicsSynthesizerThread::calculate_LOD(TexLookupInfo &info)
 
     float K = current_ctx->tex1.K;
 
-    if (current_ctx->tex1.LOD_method == 0)
+    if (current_ctx->tex1.LOD_method == 0 && !current_PRMODE->use_UV)
     {
         if (info.vtx_color.q != 1.0f)
         {
@@ -3547,7 +3551,7 @@ void GraphicsSynthesizerThread::calculate_LOD(TexLookupInfo &info)
     }
 
     //Determine mipmap level
-    info.mipmap_level = min((int8_t)info.LOD, (int8_t)current_ctx->tex1.max_MIP_level);
+    info.mipmap_level = min((int32_t)info.LOD, (int32_t)current_ctx->tex1.max_MIP_level);
 
     if (info.mipmap_level < 0)
         info.mipmap_level = 0;
@@ -4247,13 +4251,14 @@ GSPixelJitBlockRecord* GraphicsSynthesizerThread::recompile_draw_pixel(uint64_t 
     if ((current_ctx->test.alpha_test) && current_ctx->test.alpha_method != 1)
         recompile_alpha_test();
 
-    //Depth test
-    if (current_ctx->test.depth_test)
-        recompile_depth_test();
+    uint8_t* skip_frame_load = nullptr;
 
-    emitter_dp.TEST32_REG_IMM(0x1, RBX);
-    uint8_t* do_not_update_rgba = emitter_dp.JCC_NEAR_DEFERRED(ConditionCode::NE);
-
+    //If Desination alpha test is disabled and we're not updating the frame buffer, we can skip the framebuffer load
+    if (!current_ctx->test.dest_alpha_test)
+    {
+        emitter_dp.TEST32_REG_IMM(0x1, RBX);
+        skip_frame_load = emitter_dp.JCC_NEAR_DEFERRED(ConditionCode::NE);
+    }
     //Get framebuffer address and store on stack
     emitter_dp.load_addr((uint64_t)&current_ctx->frame.base_pointer, abi_args[0]);
     emitter_dp.MOV32_FROM_MEM(abi_args[0], abi_args[0]);
@@ -4362,6 +4367,18 @@ GSPixelJitBlockRecord* GraphicsSynthesizerThread::recompile_draw_pixel(uint64_t 
 
         emitter_dp.set_jump_dest(pass_dest_alpha_test);
     }
+
+    if (!current_ctx->test.dest_alpha_test)
+    {
+        emitter_dp.set_jump_dest(skip_frame_load);
+    }
+
+    //Depth test
+    if (current_ctx->test.depth_test)
+        recompile_depth_test();
+
+    emitter_dp.TEST32_REG_IMM(0x1, RBX);
+    uint8_t* do_not_update_rgba = emitter_dp.JCC_NEAR_DEFERRED(ConditionCode::NE);
 
     if (current_PRMODE->alpha_blend)
         recompile_alpha_blend();
@@ -4533,6 +4550,9 @@ void GraphicsSynthesizerThread::recompile_depth_test()
         jit_epilogue_draw_pixel();
         return;
     }
+
+    if (current_ctx->test.depth_method == 1 && current_ctx->zbuf.no_update)
+        return;
 
     //Load address to zbuffer
     emitter_dp.load_addr((uint64_t)&current_ctx->zbuf.base_pointer, abi_args[0]);
