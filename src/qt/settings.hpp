@@ -33,6 +33,9 @@ class Settings final : public QObject
         bool vu0_jit_enabled;
         bool vu1_jit_enabled;
         bool ee_jit_enabled;
+        bool d_theme;
+        bool l_theme;
+
 
         QString memcard_path;
 
