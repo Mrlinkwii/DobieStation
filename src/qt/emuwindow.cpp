@@ -800,6 +800,18 @@ void EmuWindow::show_render_view()
 void EmuWindow::update_status()
 {
     CPU_MODE mode;
+
+    if (Settings::instance().d_theme)
+    {
+
+        setStyleSheet("background-color:grey;""color:black");
+    }
+    
+    if (Settings::instance().l_theme)
+    {
+        setStyleSheet(""); //this works
+    }
+
     if (Settings::instance().ee_jit_enabled)
     {
         mode = CPU_MODE::JIT;
