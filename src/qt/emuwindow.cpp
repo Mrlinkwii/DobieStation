@@ -821,13 +821,10 @@ void EmuWindow::update_status()
         darkPalette.setColor(QPalette::Disabled, QPalette::ButtonText, disabledColor);
         darkPalette.setColor(QPalette::BrightText, Qt::red);
         darkPalette.setColor(QPalette::Link, QColor(200,45,69));
-
         darkPalette.setColor(QPalette::Highlight, QColor(200,45,69));
         darkPalette.setColor(QPalette::HighlightedText, Qt::black);
         darkPalette.setColor(QPalette::Disabled, QPalette::HighlightedText, disabledColor);
-
         qApp->setPalette(darkPalette);
-
         qApp->setStyleSheet("QToolTip { color: #ffffff; background-color: #2a82da; border: 1px solid white; }");
     }
     
@@ -850,9 +847,8 @@ void EmuWindow::update_status()
         lightPalette.setColor(QPalette::Link, QColor(98, 102, 102));
         lightPalette.setColor(QPalette::Highlight, QColor(98, 102, 102));
         qApp->setPalette(lightPalette);
-        qApp->setStyleSheet("");
-        
-          }
+        qApp->setStyleSheet("");    
+    }
 
     if (Settings::instance().ee_jit_enabled)
     {

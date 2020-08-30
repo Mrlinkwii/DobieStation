@@ -36,7 +36,6 @@ class Settings final : public QObject
         bool d_theme;
         bool l_theme;
 
-
         QString memcard_path;
 
         void save();
@@ -47,7 +46,6 @@ class Settings final : public QObject
         void set_bios_path(const QString& path);
         void set_screenshot_directory(const QString& directory);
         void set_memcard_path(const QString& path);
-
         void remove_rom_directory(const QString& directory);
         void clear_rom_paths();
     private:
