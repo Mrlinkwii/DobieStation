@@ -833,8 +833,26 @@ void EmuWindow::update_status()
     
     if (Settings::instance().l_theme)
     {
-        setStyleSheet(""); //this works
-    }
+        qApp->setStyle(QStyleFactory::create("Fusion"));
+        QPalette lightPalette;
+        QColor lightColor = QColor(255,255,255);
+        qApp->setPalette(lightPalette);
+        lightPalette.setColor(QPalette::Window, lightColor);
+        lightPalette.setColor(QPalette::WindowText, Qt::black);
+        lightPalette.setColor(QPalette::Base, QColor(255,255,255));
+        lightPalette.setColor(QPalette::AlternateBase, lightColor);
+        lightPalette.setColor(QPalette::ToolTipBase, Qt::black);
+        lightPalette.setColor(QPalette::ToolTipText, Qt::black);
+        lightPalette.setColor(QPalette::Text, Qt::black);
+        lightPalette.setColor(QPalette::Button, lightColor);
+        lightPalette.setColor(QPalette::ButtonText, Qt::black);
+        lightPalette.setColor(QPalette::BrightText, Qt::black);
+        lightPalette.setColor(QPalette::Link, QColor(98, 102, 102));
+        lightPalette.setColor(QPalette::Highlight, QColor(98, 102, 102));
+        qApp->setPalette(lightPalette);
+        qApp->setStyleSheet("");
+        
+          }
 
     if (Settings::instance().ee_jit_enabled)
     {
