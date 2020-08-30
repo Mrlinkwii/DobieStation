@@ -102,7 +102,6 @@ GeneralTab::GeneralTab(QWidget* parent)
     QGroupBox* theme_group = new QGroupBox(tr("Theming")); 
     theme_group->setLayout(theme_layout);
 
-
     QGroupBox* vu0_groupbox = new QGroupBox(tr("VU0"));
     vu0_groupbox->setLayout(vu0_layout);
 
