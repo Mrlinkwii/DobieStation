@@ -74,7 +74,6 @@ GeneralTab::GeneralTab(QWidget* parent)
         Settings::instance().d_theme = true;
     });
 
-
     connect(&Settings::instance(), &Settings::reload, this, [=]() {
         bool ee_jit_enabled = Settings::instance().ee_jit_enabled;
         bool vu0_jit_enabled = Settings::instance().vu0_jit_enabled;
@@ -89,7 +88,6 @@ GeneralTab::GeneralTab(QWidget* parent)
         vu1_interpreter_checkbox->setChecked(!vu1_jit_enabled);
         light_theme_checkbox->setChecked(l_theme);
         darktheme_checkbox->setChecked(d_theme);
-
     });
 
 
@@ -122,7 +120,6 @@ GeneralTab::GeneralTab(QWidget* parent)
     QGroupBox* ee_groupbox = new QGroupBox(tr("EE"));
     ee_groupbox->setLayout(ee_layout);    
 
-
     QVBoxLayout* layout = new QVBoxLayout;
     layout->addWidget(ee_groupbox);
     layout->addWidget(vu0_groupbox);
@@ -131,7 +128,6 @@ GeneralTab::GeneralTab(QWidget* parent)
     layout->addStretch(1);
 
     setLayout(layout);
-
     setMinimumWidth(400);
 }
 
@@ -274,7 +270,6 @@ SettingsWindow::SettingsWindow(QWidget *parent)
     QVBoxLayout* layout = new QVBoxLayout;
     layout->addWidget(tab_widget);
     layout->addWidget(close_buttons);
-
     setLayout(layout);
 }
 
