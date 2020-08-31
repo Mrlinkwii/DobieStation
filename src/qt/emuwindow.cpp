@@ -838,7 +838,7 @@ void EmuWindow::update_status()
         lightPalette.setColor(QPalette::WindowText, Qt::black);
         lightPalette.setColor(QPalette::Base, QColor(255,255,255));
         lightPalette.setColor(QPalette::AlternateBase, lightColor);
-        lightPalette.setColor(QPalette::ToolTipBase, Qt::black);
+        lightPalette.setColor(QPalette::ToolTipBase, Qt::white);
         lightPalette.setColor(QPalette::ToolTipText, Qt::black);
         lightPalette.setColor(QPalette::Text, Qt::black);
         lightPalette.setColor(QPalette::Button, lightColor);
