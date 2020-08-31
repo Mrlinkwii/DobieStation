@@ -845,7 +845,7 @@ void EmuWindow::update_status()
         lightPalette.setColor(QPalette::ButtonText, Qt::black);
         lightPalette.setColor(QPalette::BrightText, Qt::black);
         lightPalette.setColor(QPalette::Link, QColor(98, 102, 102));
-        lightPalette.setColor(QPalette::Highlight, QColor(98, 102, 102));
+        lightPalette.setColor(QPalette::Highlight, QColor(214, 214, 214));
         qApp->setPalette(lightPalette);
         qApp->setStyleSheet("");    
     }
