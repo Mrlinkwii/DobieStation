@@ -69,13 +69,11 @@ GeneralTab::GeneralTab(QWidget* parent)
     connect(light_theme_checkbox, &QRadioButton::clicked, this, [=]() {
         Settings::instance().l_theme = true;
         Settings::instance().d_theme = false;
-
     });
     
     connect(darktheme_checkbox, &QRadioButton::clicked, this, [=]() {
         Settings::instance().d_theme = true;
         Settings::instance().l_theme = false;
-
     });
 
     connect(&Settings::instance(), &Settings::reload, this, [=]() {
