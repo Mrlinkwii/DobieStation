@@ -72,6 +72,8 @@ void Settings::save()
     qsettings().setValue("screenshot_directory", screenshot_directory);
     qsettings().setValue("memcard_path", memcard_path);
     qsettings().setValue("ui_scaling_factor", scaling_factor);
+    qsettings().setValue("dark theme", d_theme);
+    qsettings().setValue("light theme", l_theme);
     qsettings().sync();
     reset();
 }
