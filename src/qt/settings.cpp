@@ -32,8 +32,6 @@ void Settings::reset()
     ee_jit_enabled = qsettings().value("ee_jit_enabled", true).toBool();
     vu0_jit_enabled = qsettings().value("vu0_jit_enabled", true).toBool();
     vu1_jit_enabled = qsettings().value("vu1_jit_enabled", true).toBool();
-    l_theme = qsettings().value("light theme ", false).toBool();
-    d_theme = qsettings().value("dark theme", true).toBool();
     last_used_directory = qsettings().value("last_used_dir", QDir::homePath()).toString();
     screenshot_directory = qsettings().value("screenshot_directory", QDir::homePath()).toString();
     rom_directories_to_add = QStringList();
