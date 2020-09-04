@@ -38,6 +38,7 @@ void Settings::reset()
     rom_directories_to_remove = QStringList();
     memcard_path = qsettings().value("memcard_path", "").toString();
     scaling_factor = qsettings().value("ui_scaling_factor", 1).toInt();
+    d_theme = qsettings().value("dark  theme ", true).toBool();
 
     emit reload();
 }
