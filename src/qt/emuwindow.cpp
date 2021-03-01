@@ -10,6 +10,7 @@
 #include <QMessageBox>
 #include <QTableWidget>
 #include <QStatusBar>
+#include <QStyleFactory> 
 
 #include "emuwindow.hpp"
 #include "settingswindow.hpp"
@@ -229,6 +230,12 @@ int EmuWindow::load_exec(const char* file_name, bool skip_BIOS)
     else if (QString::compare(ext, "bin", Qt::CaseInsensitive) == 0)
     {
         emu_thread.load_CDVD(file_name, CDVD_CONTAINER::BIN_CUE);
+        if (skip_BIOS)
+            emu_thread.set_skip_BIOS_hack(SKIP_HACK::LOAD_DISC);
+    }
+    else if (QString::compare(ext, "chd", Qt::CaseInsensitive) == 0)
+    {
+        emu_thread.load_CDVD(file_name, CDVD_CONTAINER::CHD);
         if (skip_BIOS)
             emu_thread.set_skip_BIOS_hack(SKIP_HACK::LOAD_DISC);
     }
@@ -522,16 +529,16 @@ void EmuWindow::keyPressEvent(QKeyEvent *event)
             emit press_key(PAD_BUTTON::RIGHT);
             break;
         case Qt::Key_Z:
-            emit press_key(PAD_BUTTON::CIRCLE);
-            break;
-        case Qt::Key_X:
             emit press_key(PAD_BUTTON::CROSS);
             break;
+        case Qt::Key_X:
+            emit press_key(PAD_BUTTON::CIRCLE );
+            break;
         case Qt::Key_A:
-            emit press_key(PAD_BUTTON::TRIANGLE);
+            emit press_key(PAD_BUTTON::SQUARE);
             break;
         case Qt::Key_S:
-            emit press_key(PAD_BUTTON::SQUARE);
+            emit press_key(PAD_BUTTON::TRIANGLE );
             break;
         case Qt::Key_Q:
             emit press_key(PAD_BUTTON::L1);
@@ -548,18 +555,29 @@ void EmuWindow::keyPressEvent(QKeyEvent *event)
         case Qt::Key_Period:
             emu_thread.unpause(PAUSE_EVENT::FRAME_ADVANCE);
             break;
-        case Qt::Key_J:
-            emit update_joystick(JOYSTICK::LEFT, JOYSTICK_AXIS::X, 0x00);
-            break;
-        case Qt::Key_L:
-            emit update_joystick(JOYSTICK::LEFT, JOYSTICK_AXIS::X, 0xFF);
-            break;
-        case Qt::Key_I:
+        case Qt::Key_R:
             emit update_joystick(JOYSTICK::LEFT, JOYSTICK_AXIS::Y, 0x00);
             break;
-        case Qt::Key_K:
+        case Qt::Key_F:
             emit update_joystick(JOYSTICK::LEFT, JOYSTICK_AXIS::Y, 0xFF);
             break;
+        case Qt::Key_G:
+            emit update_joystick(JOYSTICK::LEFT, JOYSTICK_AXIS::X, 0xFF);
+            break;
+        case Qt::Key_D:
+            emit update_joystick(JOYSTICK::LEFT, JOYSTICK_AXIS::X, 0x00);
+            break;
+        case Qt::Key_I:
+            emit update_joystick(JOYSTICK::RIGHT,JOYSTICK_AXIS::Y, 0x00); 
+            break;
+        case Qt::Key_K:
+            emit update_joystick(JOYSTICK::RIGHT,JOYSTICK_AXIS::Y, 0xFF);
+        case Qt::Key_J:
+            emit update_joystick(JOYSTICK::RIGHT,JOYSTICK_AXIS::X, 0xFF); 
+            break;
+        case Qt::Key_L:
+             emit update_joystick(JOYSTICK::RIGHT,JOYSTICK_AXIS::X, 0x00);
+             break;
         case Qt::Key_F1:
             if(!Settings::instance().recent_roms.isEmpty())
                 load_exec(Settings::instance().recent_roms.first().toLocal8Bit(), true);
@@ -598,16 +616,16 @@ void EmuWindow::keyReleaseEvent(QKeyEvent *event)
             emit release_key(PAD_BUTTON::RIGHT);
             break;
         case Qt::Key_Z:
-            emit release_key(PAD_BUTTON::CIRCLE);
-            break;
-        case Qt::Key_X:
             emit release_key(PAD_BUTTON::CROSS);
             break;
+        case Qt::Key_X:
+            emit release_key(PAD_BUTTON::CIRCLE );
+            break;
         case Qt::Key_A:
-            emit release_key(PAD_BUTTON::TRIANGLE);
+            emit release_key(PAD_BUTTON::SQUARE);
             break;
         case Qt::Key_S:
-            emit release_key(PAD_BUTTON::SQUARE);
+            emit release_key(PAD_BUTTON::TRIANGLE);
             break;
         case Qt::Key_Q:
             emit release_key(PAD_BUTTON::L1);
@@ -621,13 +639,21 @@ void EmuWindow::keyReleaseEvent(QKeyEvent *event)
         case Qt::Key_Space:
             emit release_key(PAD_BUTTON::SELECT);
             break;
-        case Qt::Key_J:
-        case Qt::Key_L:
+        case Qt::Key_R:
+        case Qt::Key_F:
+            emit update_joystick(JOYSTICK::LEFT, JOYSTICK_AXIS::Y, 0x80);
+            break;
+        case Qt::Key_D:
+        case Qt::Key_G:
             emit update_joystick(JOYSTICK::LEFT, JOYSTICK_AXIS::X, 0x80);
             break;
-        case Qt::Key_K:
         case Qt::Key_I:
-            emit update_joystick(JOYSTICK::LEFT, JOYSTICK_AXIS::Y, 0x80);
+        case Qt::Key_K:
+            emit update_joystick(JOYSTICK::RIGHT, JOYSTICK_AXIS::Y, 0x80);
+            break;
+        case Qt::Key_J:
+        case Qt::Key_L:
+            emit update_joystick(JOYSTICK::RIGHT, JOYSTICK_AXIS::X,0x80);
             break;
     }
 }
@@ -715,7 +741,7 @@ void EmuWindow::open_file_no_skip()
     emu_thread.pause(PAUSE_EVENT::FILE_DIALOG);
     QString file_name = QFileDialog::getOpenFileName(
         this, tr("Open Rom"), Settings::instance().last_used_directory,
-        tr("ROM Files (*.elf *.iso *.cso *.bin)")
+        tr("ROM Files (*.elf *.iso *.cso *.bin *.chd)")
     );
 
     if (!file_name.isEmpty())
@@ -732,7 +758,7 @@ void EmuWindow::open_file_skip()
     emu_thread.pause(PAUSE_EVENT::FILE_DIALOG);
     QString file_name = QFileDialog::getOpenFileName(
         this, tr("Open Rom"), Settings::instance().last_used_directory,
-        tr("ROM Files (*.elf *.iso *.cso *.bin)")
+        tr("ROM Files (*.elf *.iso *.cso *.bin *.chd)")
     );
 
     if (!file_name.isEmpty())
@@ -800,6 +826,55 @@ void EmuWindow::show_render_view()
 void EmuWindow::update_status()
 {
     CPU_MODE mode;
+
+    if (Settings::instance().d_theme) // Dark Theme colour change  
+    {
+        qApp->setStyle(QStyleFactory::create("Fusion"));
+        QPalette darkPalette;
+        QColor darkColor = QColor(35,39,42);
+        QColor disabledColor = QColor(200,45,69);
+        darkPalette.setColor(QPalette::Window, darkColor);
+        darkPalette.setColor(QPalette::WindowText, Qt::white);
+        darkPalette.setColor(QPalette::Base, QColor(35,39,42));
+        darkPalette.setColor(QPalette::AlternateBase, darkColor);
+        darkPalette.setColor(QPalette::ToolTipBase, Qt::white);
+        darkPalette.setColor(QPalette::ToolTipText, Qt::white);
+        darkPalette.setColor(QPalette::Text, Qt::white);
+        darkPalette.setColor(QPalette::Disabled, QPalette::Text, disabledColor);
+        darkPalette.setColor(QPalette::Button, darkColor);
+        darkPalette.setColor(QPalette::ButtonText, Qt::white);
+        darkPalette.setColor(QPalette::Disabled, QPalette::ButtonText, disabledColor);
+        darkPalette.setColor(QPalette::BrightText, Qt::red);
+        darkPalette.setColor(QPalette::Link, QColor(200,45,69));
+        darkPalette.setColor(QPalette::Highlight, QColor(200,45,69));
+        darkPalette.setColor(QPalette::HighlightedText, Qt::black);
+        darkPalette.setColor(QPalette::Disabled, QPalette::HighlightedText, disabledColor);
+        qApp->setPalette(darkPalette);
+        qApp->setStyleSheet("QToolTip { color: #ffffff; background-color: #2a82da; border: 1px solid white; }");
+    }
+    
+    if (Settings::instance().l_theme)// Change to  Light Theme   
+    {
+        qApp->setStyle(QStyleFactory::create("Fusion"));
+        QPalette lightPalette;
+        QColor lightColor = QColor(255,255,255);
+        qApp->setPalette(lightPalette);
+        lightPalette.setColor(QPalette::Window, lightColor);
+        lightPalette.setColor(QPalette::WindowText, Qt::black);
+        lightPalette.setColor(QPalette::Base, QColor(255,255,255));
+        lightPalette.setColor(QPalette::AlternateBase, lightColor);
+        lightPalette.setColor(QPalette::ToolTipBase, Qt::white);
+        lightPalette.setColor(QPalette::ToolTipText, Qt::black);
+        lightPalette.setColor(QPalette::Text, Qt::black);
+        lightPalette.setColor(QPalette::Button, lightColor);
+        lightPalette.setColor(QPalette::ButtonText, Qt::black);
+        lightPalette.setColor(QPalette::BrightText, Qt::black);
+        lightPalette.setColor(QPalette::Link, QColor(98, 102, 102));
+        lightPalette.setColor(QPalette::Highlight, QColor(214, 214, 214));
+        qApp->setPalette(lightPalette);
+        qApp->setStyleSheet("");    
+    }
+
     if (Settings::instance().ee_jit_enabled)
     {
         mode = CPU_MODE::JIT;

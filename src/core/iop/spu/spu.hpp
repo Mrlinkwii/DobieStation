@@ -218,6 +218,10 @@ class SPU
         int16_t core_volume_l;
         int16_t core_volume_r;
 
+        // Master output volume.
+        Volume MVOLL;
+        Volume MVOLR;
+
         CoreMix mix_state;
 
         uint32_t voice_mixdry_left;
@@ -285,6 +289,8 @@ class SPU
         uint16_t read16(uint32_t addr);
         void write16(uint32_t addr, uint16_t value);
         uint32_t get_memin_addr();
+
+        void gaussianConstructTable();
 
         void load_state(std::ifstream& state);
         void save_state(std::ofstream& state);

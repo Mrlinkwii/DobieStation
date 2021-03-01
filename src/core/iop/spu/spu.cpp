@@ -60,6 +60,8 @@ void SPU::reset(uint8_t* RAM)
     voice_mixwet_left = 0;
     voice_mixwet_right = 0;
     voice_pitch_mod = 0;
+    MVOLL = {};
+    MVOLR = {};
 
     std::ostringstream fname;
     fname << "spu_" << id << "_stream" << ".wav";
@@ -100,7 +102,7 @@ void SPU::spu_irq(int index)
 void SPU::switch_block(int voice_id)
 {
     Voice &voice = voices[voice_id];
-    voice.current_addr &= 0x000FFFFF;
+    voice.current_addr &= 0x000FFFF8;
     uint16_t header = RAM[voice.current_addr];
     voice.loop_code = (header >> 8) & 0x3;
     bool loop_start = header & (1 << 10);
@@ -148,8 +150,8 @@ stereo_sample SPU::voice_gen_sample(int voice_id)
     {
         voice.counter -= 0x1000;
 
-
         voice.sample_idx++;
+
         if ((voice.sample_idx % 4) == 0)
         {
             spu_check_irq(voice.current_addr);
@@ -157,37 +159,37 @@ stereo_sample SPU::voice_gen_sample(int voice_id)
             voice.current_addr &= 0x000FFFFF;
         }
 
+        if (voice.sample_idx == 24)
+        {
+            if (voice.loop_code & 0x1)
+            {
+                voice.current_addr = voice.loop_addr | 1;
+            }
+        }
+
         //End of block
         if (voice.sample_idx == 28)
         {
-            switch (voice.loop_code)
+            if (voice.loop_code & 0x1) // looping back
             {
-                //Continue to next block
-                case 0:
-                case 2:
-                    break;
-                //No loop specified, set ENDX and mute channel
-                case 1:
-                    ENDX |= 1 << voice_id;
-                    printf("[SPU%d] EDEBUG Setting ADSR phase of voice %d to %d\n", id, voice_id, 4);
+                ENDX |= 1 << voice_id;
+
+                if (!(voice.loop_code & 0x2)) // stop voice
+                {
                     voice.adsr.set_stage(ADSR::Stage::Release);
                     voice.adsr.volume = 0;
-                    break;
-                //Jump to loop addr and set ENDX
-                case 3:
-                    voice.current_addr = voice.loop_addr;
-                    ENDX |= 1 << voice_id;
-                    break;
+                }
             }
+
             switch_block(voice_id);
             continue;
         }
+
         voice.old3 = voice.old2;
         voice.old2 = voice.old1;
         voice.old1 = voice.next_sample;
         voice.next_sample = voice.pcm.at(voice.sample_idx);
     }
-
 
     int16_t output_sample = 0;
 
@@ -274,6 +276,13 @@ void SPU::gen_sample()
         core_output.mix(reverb.Eout, true, true);
     }
 
+    MVOLL.advance();
+    MVOLR.advance();
+
+    // Could probably do with testing how core0 mvol gets applied to memory writes/input to core1
+    mulvol(core_output.left, MVOLL.value);
+    mulvol(core_output.right, MVOLR.value);
+
     if (id == 1)
     {
         memout(SINL, core_output.left);
@@ -305,137 +314,6 @@ void SPU::gen_sample()
         if (running_ADMA())
             set_dma_req();
     }
-}
-
-uint32_t SPU::translate_reverb_offset(int offset)
-{
-    uint32_t addr = reverb.effect_pos + offset;
-    uint32_t size = reverb.effect_area_end - reverb.effect_area_start;
-    addr = reverb.effect_area_start + (addr % size);
-
-    if (addr < reverb.effect_area_start || addr > reverb.effect_area_end)
-        Errors::die("[SPU%d] RDEBUG reverb addr outside of buffer - VERY BAD\n", id);
-
-    return addr;
-}
-
-void SPU::run_reverb(stereo_sample wet)
-{
-    // Reverb runs at half the rate
-    // In reality it alternates producing left and right samples
-    auto &r = reverb;
-
-    if (reverb.cycle > 0)
-    {
-        reverb.cycle--;
-        return;
-    }
-
-    if (static_cast<int>(reverb.effect_area_end - reverb.effect_area_start) <= 0)
-        return;
-
-    int16_t Lin = 0, Rin = 0;
-    int16_t Lout = 0, Rout = 0;
-
-
-#define W(x, value) write(translate_reverb_offset((static_cast<int>(x))), static_cast<uint16_t>((value)))
-#define R(x) static_cast<int16_t>(read(translate_reverb_offset((x))))
-    //_Input from Mixer (Input volume multiplied with incoming data)_____________
-    // Lin = vLIN * LeftInput    ;from any channels that have Reverb enabled
-    // Rin = vRIN * RightInput   ;from any channels that have Reverb enabled
-    Lin = mulvol(wet.left, r.vLIN);
-    Rin = mulvol(wet.right, r.vRIN);
-
-     // ____Same Side Reflection (left-to-left and right-to-right)___________________
-    // [mLSAME] = (Lin + [dLSAME]*vWALL - [mLSAME-2])*vIIR + [mLSAME-2]  ;L-to-L
-    // [mRSAME] = (Rin + [dRSAME]*vWALL - [mRSAME-2])*vIIR + [mRSAME-2]  ;R-to-R
-    int16_t tLSAME = clamp16(Lin + mulvol(R(r.dLSAME), r.vWALL));
-    tLSAME = mulvol(clamp16(tLSAME - R(r.mLSAME - 1)), r.vIIR);
-    tLSAME = clamp16(tLSAME + R(r.mLSAME - 1));
-
-    if (effect_enable)
-        W(r.mLSAME, tLSAME);
-
-    int16_t tRSAME = clamp16(Rin + mulvol(R(r.dRSAME), r.vWALL));
-    tRSAME = mulvol(clamp16(tRSAME - R(r.mRSAME - 1)), r.vIIR);
-    tRSAME = clamp16(tRSAME + R(r.mRSAME - 1));
-
-    if (effect_enable)
-        W(r.mRSAME, tRSAME);
-
-    // ___Different Side Reflection (left-to-right and right-to-left)_______________
-    // [mLDIFF] = (Lin + [dRDIFF]*vWALL - [mLDIFF-2])*vIIR + [mLDIFF-2]  ;R-to-L
-    // [mRDIFF] = (Rin + [dLDIFF]*vWALL - [mRDIFF-2])*vIIR + [mRDIFF-2]  ;L-to-R
-    int16_t tLDIFF = clamp16(Lin + mulvol(R(r.dRDIFF), r.vWALL));
-    tLDIFF = mulvol(clamp16(tLDIFF- R(r.mLDIFF - 1)), r.vIIR);
-    tLDIFF = clamp16(tLDIFF + R(r.mLDIFF - 1));
-
-    if (effect_enable)
-        W(r.mLDIFF, tLDIFF);
-
-    int16_t tRDIFF = clamp16(Rin + mulvol(R(r.dLDIFF), r.vWALL));
-    tRDIFF = mulvol(clamp16(tRDIFF- R(r.mRDIFF - 1)), r.vIIR);
-    tRDIFF = clamp16(tRDIFF + R(r.mRDIFF - 1));
-
-    if (effect_enable)
-        W(r.mRDIFF, tRDIFF);
-
-    // ___Early Echo (Comb Filter, with input from buffer)__________________________
-    // Lout=vCOMB1*[mLCOMB1]+vCOMB2*[mLCOMB2]+vCOMB3*[mLCOMB3]+vCOMB4*[mLCOMB4]
-    // Rout=vCOMB1*[mRCOMB1]+vCOMB2*[mRCOMB2]+vCOMB3*[mRCOMB3]+vCOMB4*[mRCOMB4]
-    Lout = mulvol(r.vCOMB1, R(r.mLCOMB1));
-    Lout = clamp16(Lout + mulvol(r.vCOMB2, R(r.mLCOMB2)));
-    Lout = clamp16(Lout + mulvol(r.vCOMB3, R(r.mLCOMB3)));
-    Lout = clamp16(Lout + mulvol(r.vCOMB4, R(r.mLCOMB4)));
-
-    Rout = mulvol(r.vCOMB1, R(r.mRCOMB1));
-    Rout = clamp16(Rout + mulvol(r.vCOMB2, R(r.mRCOMB2)));
-    Rout = clamp16(Rout + mulvol(r.vCOMB3, R(r.mRCOMB3)));
-    Rout = clamp16(Rout + mulvol(r.vCOMB4, R(r.mRCOMB4)));
-
-    // ___Late Reverb APF1 (All Pass Filter 1, with input from COMB)________________
-    // Lout=Lout-vAPF1*[mLAPF1-dAPF1], [mLAPF1]=Lout, Lout=Lout*vAPF1+[mLAPF1-dAPF1]
-    // Rout=Rout-vAPF1*[mRAPF1-dAPF1], [mRAPF1]=Rout, Rout=Rout*vAPF1+[mRAPF1-dAPF1]
-    Lout = clamp16(Lout - mulvol(r.vAPF1, R(r.mLAPF1-r.dAFP1)));
-    if (effect_enable)
-        W(r.mLAPF1, Lout);
-    Lout = clamp16(mulvol(Lout, r.vAPF1) + R(r.mLAPF1-r.dAFP1));
-
-    Rout = clamp16(Rout - mulvol(r.vAPF1, R(r.mRAPF1-r.dAFP1)));
-    if (effect_enable)
-        W(r.mRAPF1, Rout);
-    Rout = clamp16(mulvol(Rout, r.vAPF1) + R(r.mRAPF1-r.dAFP1));
-
-    // ___Late Reverb APF2 (All Pass Filter 2, with input from APF1)________________
-    // Lout=Lout-vAPF2*[mLAPF2-dAPF2], [mLAPF2]=Lout, Lout=Lout*vAPF2+[mLAPF2-dAPF2]
-    // Rout=Rout-vAPF2*[mRAPF2-dAPF2], [mRAPF2]=Rout, Rout=Rout*vAPF2+[mRAPF2-dAPF2]
-    Lout = clamp16(Lout-mulvol(r.vAPF2, R(r.mLAPF2-r.dAFP2)));
-    if (effect_enable)
-        W(r.mLAPF2, Lout);
-    Lout = clamp16(mulvol(Lout, r.vAPF2)+R(r.mLAPF2-r.dAFP2));
-
-    Rout = clamp16(Rout-mulvol(r.vAPF2, R(r.mRAPF2-r.dAFP2)));
-    if (effect_enable)
-        W(r.mRAPF2, Rout);
-    Rout = clamp16(mulvol(Rout, r.vAPF2)+R(r.mRAPF2-r.dAFP2));
-    // ___Output to Mixer (Output volume multiplied with input from APF2)___________
-    // LeftOutput  = Lout*vLOUT
-    // RightOutput = Rout*vROUT
-    //r.Eout.left = Lout;
-    //r.Eout.right = Rout;
-    r.Eout.left = mulvol(Lout, effect_volume_l);
-    r.Eout.right = mulvol(Rout, effect_volume_r);
-    // ___Finally, before repeating the above steps_________________________________
-    // BufferAddress = MAX(mBASE, (BufferAddress+2) AND 7FFFEh)
-    // Wait one 1T, then repeat the above stuff
-    r.effect_pos += 1;
-    if (r.effect_pos >= (r.effect_area_end-r.effect_area_start+1))
-        r.effect_pos = 0;
-#undef R
-#undef W
-#undef MUL
-
-    reverb.cycle = 1;
 }
 
 static const uint8_t noise_add[64] = {
@@ -856,6 +734,14 @@ void SPU::write16(uint32_t addr, uint16_t value)
 
         switch (addr)
         {
+            case 0x760:
+                printf("[SPU%d] Write MVOLL: $%04X\n", id, value);
+                MVOLL.set(value);
+                break;
+            case 0x762:
+                printf("[SPU%d] Write MVOLR: $%04X\n", id, value);
+                MVOLR.set(value);
+                break;
             case 0x764:
                 printf("[SPU%d] Write EVOLL: $%04X\n", id, value);
                 effect_volume_l = static_cast<int16_t>(value);
@@ -1195,7 +1081,6 @@ void SPU::write_voice_reg(uint32_t addr, uint16_t value)
 
 void SPU::update_voice_state()
 {
-
     for (int i = 0; i < 24; i++)
     {
         if (key_off & (1 << i))
@@ -1207,8 +1092,8 @@ void SPU::update_voice_state()
         {
             key_on_voice(i);
         }
-
     }
+
     key_on = 0;
     key_off = 0;
 }
@@ -1216,7 +1101,7 @@ void SPU::update_voice_state()
 void SPU::key_on_voice(int v)
 {
     //Copy start addr to current addr, clear ENDX bit, and set envelope to Attack mode
-    voices[v].current_addr = voices[v].start_addr;
+    voices[v].current_addr = voices[v].start_addr | 1;
     voices[v].new_block = true;
     voices[v].loop_addr_specified = false;
     // Clear previous sample data here to avoid pops and clicks.
@@ -1227,14 +1112,12 @@ void SPU::key_on_voice(int v)
     ENDX &= ~(1 << v);
     voices[v].adsr.set_stage(ADSR::Stage::Attack);
     voices[v].adsr.volume = 0;
-    printf("[SPU%d] EDEBUG Setting ADSR phase of voice %d to %d\n", id, v, 1);
 }
 
 void SPU::key_off_voice(int v)
 {
     //Set envelope to Release mode
     voices[v].adsr.set_stage(ADSR::Stage::Release);
-    printf("[SPU%d] EDEBUG Setting ADSR phase of voice %d to %d\n", id, v, 4);
 }
 
 void SPU::clear_dma_req()

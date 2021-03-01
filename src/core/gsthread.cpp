@@ -330,12 +330,12 @@ void GraphicsSynthesizerThread::event_loop()
                     case assert_vsync_t:
                         reg.assert_VSYNC();
                         break;
-                    case set_vblank_t:
-                    {
-                        auto p = data.payload.vblank_payload;
-                        reg.set_VBLANK(p.vblank);
+                    case assert_hblank_t:
+                        reg.assert_HBLANK();
                         break;
-                    }
+                    case swap_field_t:
+                        reg.swap_FIELD();
+                        break;
                     case memdump_t:
                     {
                         auto p = data.payload.render_payload;
@@ -402,9 +402,16 @@ void GraphicsSynthesizerThread::event_loop()
                     }
                     case request_local_host_tx:
                     {
+                        auto p = data.payload.download_payload;
+
+                        while (!p.target_mutex->try_lock())
+                        {
+                            printf("[GS_t] buffer lock failed!\n");
+                            std::this_thread::yield();
+                        }
+                        std::lock_guard<std::mutex> lock(*p.target_mutex, std::adopt_lock);
                         GSReturnMessagePayload return_payload;
-                        return_payload.data_payload.status = (TRXDIR != 3);
-                        return_payload.data_payload.quad_data = local_to_host();
+                        return_payload.download_payload.quad_count = local_to_host(p.target);
                         return_queue->push({ GSReturn::local_host_transfer, return_payload });
                         std::unique_lock<std::mutex> lk(data_mutex);
                         recieve_data = true;
@@ -583,7 +590,8 @@ void GraphicsSynthesizerThread::render_CRT(uint32_t* target)
     int32_t display2_xoffset = 0;
     bool enable_circuit1 = true;
     bool enable_circuit2 = true;
-
+    bool field_offset = !reg.CSR.is_odd_frame;
+    
     //Get overall picture height, largest will likely cover whole screen
     if (reg.PMODE.circuit1 && reg.PMODE.circuit2)
     {
@@ -636,12 +644,12 @@ void GraphicsSynthesizerThread::render_CRT(uint32_t* target)
         {
             y_increment = 2;
             //We use !reg.CSR.is_odd_frame here because frames are counted from 1,2,3 etc, not 0, 1, 2, so the first frame is always odd
-            start_scanline = !reg.CSR.is_odd_frame;
+            start_scanline = field_offset;
 
             if (!reg.SMODE2.frame_mode)
             {
                 frame_line_increment = 2;
-                fb_offset = !reg.CSR.is_odd_frame;
+                fb_offset = field_offset;
             }
         }
     }
@@ -745,7 +753,7 @@ void GraphicsSynthesizerThread::render_CRT(uint32_t* target)
 
                         if (reg.SMODE2.interlaced)
                         {
-                            if (reg.CSR.is_odd_frame)
+                            if (!field_offset)
                                 target[pixel_x + ((pixel_y + 1) * width)] = screen_buffer[pixel_x + ((pixel_y + 1) * width)];
                             else if (pixel_y > 0)
                                 target[pixel_x + ((pixel_y - 1) * width)] = screen_buffer[pixel_x + ((pixel_y - 1) * width)];
@@ -3055,21 +3063,23 @@ void GraphicsSynthesizerThread::write_HWREG(uint64_t data)
     }
 }
 
-uint128_t GraphicsSynthesizerThread::local_to_host()
+uint32_t GraphicsSynthesizerThread::local_to_host(uint128_t *target)
 {
     int ppd = 0; //pixels per doubleword (64-bits)
-    uint128_t return_data;
-    return_data._u64[0] = 0;
-    return_data._u64[1] = 0;
+    uint32_t return_qwc = 0;
+    target[0]._u64[0] = 0;
+    target[0]._u64[1] = 0;
+    printf("[GS_t] Local to Host transfer started\n");
+
     if (TRXDIR == 3)
-        return return_data;
+        return return_qwc;
 
     //Invalid transfer if no height/width has been set
     if (TRXREG.width == 0 || TRXREG.height == 0)
     {
         TRXDIR = 3;
         pixels_transferred = 0;
-        return return_data;
+        return return_qwc;
     }
 
     switch (BITBLTBUF.source_format)
@@ -3109,103 +3119,105 @@ uint128_t GraphicsSynthesizerThread::local_to_host()
         default:
             Errors::die("[GS_t] GS Download Unrecognized BITBLTBUF source format $%02X\n", BITBLTBUF.source_format);
     }
-    uint64_t data = 0;
-    for (int datapart = 0; datapart < 2; datapart++)
-    {
-        for (int i = 0; i < ppd; i++)
-        {
-            switch (BITBLTBUF.source_format)
-            {
-                case 0x00:
-                    data |= (uint64_t)(read_PSMCT32_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
-                        TRXPOS.int_source_x, TRXPOS.int_source_y) & 0xFFFFFFFF) << (i * 32);
-                    pixels_transferred++;
-                    TRXPOS.int_source_x++;
-                    break;
-                case 0x01:
-                    data = pack_PSMCT24(false);
-                    break;
-                case 0x02:
-                    data |= (uint64_t)(read_PSMCT16_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
-                        TRXPOS.int_source_x, TRXPOS.int_source_y) & 0xFFFF) << (i * 16);
-                    pixels_transferred++;
-                    TRXPOS.int_source_x++;
-                    break;
-                case 0x0A:
-                    data |= (uint64_t)(read_PSMCT16S_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
-                        TRXPOS.int_source_x, TRXPOS.int_source_y) & 0xFFFF) << (i * 16);
-                    pixels_transferred++;
-                    TRXPOS.int_source_x++;
-                    break;
-                case 0x13:
-                    data |= (uint64_t)(read_PSMCT8_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
-                        TRXPOS.int_source_x, TRXPOS.int_source_y) & 0xFF) << (i * 8);
-                    pixels_transferred++;
-                    TRXPOS.int_source_x++;
-                    break;
-                case 0x14:
-                    data |= (uint64_t)(read_PSMCT4_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
-                        TRXPOS.int_source_x, TRXPOS.int_source_y) & 0xf) << (i * 4);
-                    pixels_transferred++;
-                    TRXPOS.int_source_x++;
-                    break;
-                case 0x1B:
-                    data |= (uint64_t)((read_PSMCT32_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
-                        TRXPOS.int_source_x, TRXPOS.int_source_y) >> 24) & 0xFF) << (i * 8);
-                    pixels_transferred++;
-                    TRXPOS.int_source_x++;
-                    break;
-                case 0x30:
-                    data |= (uint64_t)(read_PSMCT32Z_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
-                        TRXPOS.int_source_x, TRXPOS.int_source_y) & 0xFFFFFFFF) << (i * 32);
-                    pixels_transferred++;
-                    TRXPOS.int_source_x++;
-                    break;
-                case 0x31:
-                    data = pack_PSMCT24(true);
-                    break;
-                case 0x32:
-                    data |= (uint64_t)(read_PSMCT16Z_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
-                        TRXPOS.int_source_x, TRXPOS.int_source_y) & 0xFFFF) << (i * 16);
-                    pixels_transferred++;
-                    TRXPOS.int_source_x++;
-                    break;
-                case 0x3A:
-                    data |= (uint64_t)(read_PSMCT16SZ_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
-                        TRXPOS.int_source_x, TRXPOS.int_source_y) & 0xFFFF) << (i * 16);
-                    pixels_transferred++;
-                    TRXPOS.int_source_x++;
-                    break;
-                default:
-                    Errors::die("[GS_t] GS Download Unrecognized BITBLTBUF source format $%02X\n", BITBLTBUF.source_format);
-            }
-
-
-            if (pixels_transferred % TRXREG.width == 0)
-            {
-                TRXPOS.int_source_x = TRXPOS.source_x;
-                TRXPOS.int_source_y++;
-            }
-
-            //Coordinates wrap at 2048 pixels
-            TRXPOS.int_source_x %= 2048;
-            TRXPOS.int_source_y %= 2048;
-        }
-
-        return_data._u64[datapart] = data;
-        data = 0;
-    }
-
+   
     int max_pixels = TRXREG.width * TRXREG.height;
-    if (pixels_transferred >= max_pixels)
+
+    while (pixels_transferred < max_pixels)
     {
-        //Deactivate the transmisssion
-        printf("[GS_t] Local to Host transfer ended\n");
-        TRXDIR = 3;
-        pixels_transferred = 0;
+        uint64_t data = 0;
+        for (int datapart = 0; datapart < 2; datapart++)
+        {
+            for (int i = 0; i < ppd; i++)
+            {
+                switch (BITBLTBUF.source_format)
+                {
+                    case 0x00:
+                        data |= (uint64_t)(read_PSMCT32_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
+                            TRXPOS.int_source_x, TRXPOS.int_source_y) & 0xFFFFFFFF) << (i * 32);
+                        pixels_transferred++;
+                        TRXPOS.int_source_x++;
+                        break;
+                    case 0x01:
+                        data = pack_PSMCT24(false);
+                        break;
+                    case 0x02:
+                        data |= (uint64_t)(read_PSMCT16_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
+                            TRXPOS.int_source_x, TRXPOS.int_source_y) & 0xFFFF) << (i * 16);
+                        pixels_transferred++;
+                        TRXPOS.int_source_x++;
+                        break;
+                    case 0x0A:
+                        data |= (uint64_t)(read_PSMCT16S_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
+                            TRXPOS.int_source_x, TRXPOS.int_source_y) & 0xFFFF) << (i * 16);
+                        pixels_transferred++;
+                        TRXPOS.int_source_x++;
+                        break;
+                    case 0x13:
+                        data |= (uint64_t)(read_PSMCT8_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
+                            TRXPOS.int_source_x, TRXPOS.int_source_y) & 0xFF) << (i * 8);
+                        pixels_transferred++;
+                        TRXPOS.int_source_x++;
+                        break;
+                    case 0x14:
+                        data |= (uint64_t)(read_PSMCT4_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
+                            TRXPOS.int_source_x, TRXPOS.int_source_y) & 0xf) << (i * 4);
+                        pixels_transferred++;
+                        TRXPOS.int_source_x++;
+                        break;
+                    case 0x1B:
+                        data |= (uint64_t)((read_PSMCT32_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
+                            TRXPOS.int_source_x, TRXPOS.int_source_y) >> 24) & 0xFF) << (i * 8);
+                        pixels_transferred++;
+                        TRXPOS.int_source_x++;
+                        break;
+                    case 0x30:
+                        data |= (uint64_t)(read_PSMCT32Z_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
+                            TRXPOS.int_source_x, TRXPOS.int_source_y) & 0xFFFFFFFF) << (i * 32);
+                        pixels_transferred++;
+                        TRXPOS.int_source_x++;
+                        break;
+                    case 0x31:
+                        data = pack_PSMCT24(true);
+                        break;
+                    case 0x32:
+                        data |= (uint64_t)(read_PSMCT16Z_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
+                            TRXPOS.int_source_x, TRXPOS.int_source_y) & 0xFFFF) << (i * 16);
+                        pixels_transferred++;
+                        TRXPOS.int_source_x++;
+                        break;
+                    case 0x3A:
+                        data |= (uint64_t)(read_PSMCT16SZ_block(BITBLTBUF.source_base, BITBLTBUF.source_width,
+                            TRXPOS.int_source_x, TRXPOS.int_source_y) & 0xFFFF) << (i * 16);
+                        pixels_transferred++;
+                        TRXPOS.int_source_x++;
+                        break;
+                    default:
+                        Errors::die("[GS_t] GS Download Unrecognized BITBLTBUF source format $%02X\n", BITBLTBUF.source_format);
+                }
+
+                if (pixels_transferred % TRXREG.width == 0)
+                {
+                    TRXPOS.int_source_x = TRXPOS.source_x;
+                    TRXPOS.int_source_y++;
+                }
+
+                //Coordinates wrap at 2048 pixels
+                TRXPOS.int_source_x %= 2048;
+                TRXPOS.int_source_y %= 2048;
+            }
+
+            target[return_qwc]._u64[datapart] = data;
+            data = 0;
+        }
+        return_qwc++;
     }
 
-    return return_data;
+    //Deactivate the transmisssion
+    printf("[GS_t] Local to Host transfer ended\n");
+    TRXDIR = 3;
+    pixels_transferred = 0;
+
+    return return_qwc;
 }
 
 void GraphicsSynthesizerThread::unpack_PSMCT24(uint64_t data, int offset, bool z_format)

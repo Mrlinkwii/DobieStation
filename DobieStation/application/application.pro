@@ -6,10 +6,20 @@ TARGET = ../DobieStation
 CONFIG += console c++14
 CONFIG -= app_bundle
 
-INCLUDEPATH += ../../ext/libdeflate
-LIBS += -L../libdeflate
-win32:LIBS += -llibdeflate
-else:LIBS += -ldeflate
+INCLUDEPATH += ../../ext/zlib/include \
+               ../../ext/libchdr/include
+LIBS += -L../libchdr \
+        -L../lzma \
+        -L../libFLAC \
+        -L../zlib
+win32:LIBS += -llibchdr \
+              -llzma \
+              -llibFLAC \
+              -lzlib
+else:LIBS += -llibchdr \
+             -llzma \
+             -llibFLAC \
+             -lzlib
 
 QMAKE_CFLAGS_RELEASE -= -O
 QMAKE_CFLAGS_RELEASE -= -O1
@@ -53,6 +63,7 @@ SOURCES += ../../src/qt/main.cpp \
     ../../src/core/ee/intc.cpp \
     ../../src/core/iop/cdvd/cdvd.cpp \
     ../../src/core/iop/cdvd/cso_reader.cpp\
+    ../../src/core/iop/cdvd/chd_reader.cpp\
     ../../src/core/iop/sio2.cpp \
     ../../src/core/ee/vu.cpp \
     ../../src/core/ee/emotion_vu0.cpp \
@@ -61,7 +72,8 @@ SOURCES += ../../src/qt/main.cpp \
     ../../src/core/iop/spu/spu.cpp \
     ../../src/core/iop/spu/spu_adpcm.cpp \
     ../../src/core/iop/spu/spu_envelope.cpp \
-    ../../src/core/iop/spu/spu_tables.cpp \
+    ../../src/core/iop/spu/spu_interpolate.cpp \
+    ../../src/core/iop/spu/spu_reverb.cpp \
     ../../src/qt/emuthread.cpp \
     ../../src/core/tests/iop/alu.cpp \
     ../../src/core/ee/vif.cpp \
@@ -139,6 +151,7 @@ HEADERS += \
     ../../src/core/ee/intc.hpp \
     ../../src/core/iop/cdvd/cdvd.hpp \
     ../../src/core/iop/cdvd/cso_reader.hpp\
+    ../../src/core/iop/cdvd/chd_reader.hpp\
     ../../src/core/iop/sio2.hpp \
     ../../src/core/ee/vu.hpp \
     ../../src/core/iop/firewire.hpp \
